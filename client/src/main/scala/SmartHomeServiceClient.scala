@@ -19,6 +19,8 @@ trait SmartHomeServiceClient[F[_]] {
 
   def getTemperature(): Stream[F, Temperature]
 
+  def comingBackMode(locations: Stream[F, Location]): F[Boolean]
+
 }
 object SmartHomeServiceClient {
 
@@ -33,12 +35,19 @@ object SmartHomeServiceClient {
           _ <- L.info(s"Result: $response")
         } yield response.result
 
-def getTemperature(): Stream[F, Temperature] =
-  for {
-    client <- Stream.eval(clientF)
-    response <- client.getTemperature(Empty)
-    _ <- Stream.eval(L.info(s"Result: $response"))
-  } yield response
+      def getTemperature(): Stream[F, Temperature] =
+        for {
+          client <- Stream.eval(clientF)
+          response <- client.getTemperature(Empty)
+          _ <- Stream.eval(L.info(s"Result: $response"))
+        } yield response
+
+      def comingBackMode(locations: Stream[F, Location]): F[Boolean] =
+        for {
+          client <- clientF
+          response <- client.comingBackMode(locations)
+          _ <- L.info(s"Result: $response")
+        } yield response.result
 
     }
 

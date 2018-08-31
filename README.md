@@ -21,6 +21,11 @@
   - [Server](#server-2)
   - [Client](#client-2)
   - [Result](#result-1)
+- [Client-streaming RPC service: `comingBackMode`](#client-streaming-rpc-service-comingbackmode)
+  - [Protocol](#protocol-3)
+  - [Server](#server-3)
+  - [Client](#client-3)
+  - [Result](#result-2)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -529,7 +534,151 @@ INFO  - SmartHomeService - getTemperature Request
 * New Temperature 👍  --> Temperature(25.7,Celsius)
 ```
 
+## Client-streaming RPC service: `comingBackMode`
 
+To illustrate the client streaming, we are going to build a new service that makes the server react to real-time info provided by the client. In this case, as we said above, the client (the mobile app) will emit a stream of coordinates (latitude and longitude), and the server (the smart home) will trigger some actions according to the distance.
+
+### Protocol
+
+So let's add this service to the protocol.
+
+```scala
+case class Location(lat: Double, long: Double)
+
+...
+
+@message final case class ComingBackModeResponse(result: Boolean)
+
+@service(Protobuf) trait SmartHomeService[F[_]] {
+  def isEmpty(request: IsEmptyRequest): F[IsEmptyResponse]
+  def getTemperature(empty: Empty.type): Stream[F, Temperature]
+  def comingBackMode(request: Stream[F, Location]): F[ComingBackModeResponse]
+}
+```
+
+### Server
+
+So there is a new function to be implemented in the interpreter:
+
+```scala
+override def comingBackMode(
+    request: Stream[F, Location]): F[ComingBackModeResponse] = {
+  (for {
+    _ <- Stream.eval(L.info(s"SmartHomeService - comingBackMode Request"))
+    _ <- request.attempt.map { l =>
+      println(getActions)
+    }
+  } yield ()).compile.drain.map(_ => ComingBackModeResponse(true))
+}
+```
+
+Where `getActions` is a sample piece that takes some actions randomly:
+
+```scala
+private def getActions: List[String] = {
+  val ops = Seq(
+    List("👮 - Enable Security cameras", "💡 - Turn off Lights"),
+    List("😎 - Low the blinds", "📺 - Turn on TV"),
+    List("🔥 - Increase thermostat power", "💦 -  Disable irrigation system"),
+    List("🚪 - Unlock doors", "👩 - Connect Alexa")
+  )
+  ops(Random.nextInt(ops.length))
+}
+```
+
+### Client
+
+Again, if the client will emit a stream of locations, we should develop a producer:
+
+```scala
+object LocationGenerators {
+
+  val seed = Location(47d, 47d)
+
+  def get[F[_]: Sync]: Stream[F, Location] = {
+    Stream.iterateEval(seed) { l =>
+      println(s"* New Location 👍  --> $l")
+      nextLocation(l)
+    }
+  }
+
+  def nextLocation[F[_]](current: Location)(implicit F: Sync[F]): F[Location] =
+    F.delay {
+      Thread.sleep(3000)
+      Location(closeLocation(current.lat), closeLocation(current.long))
+    }
+
+  def closeLocation(d: Double): Double = {
+    val increment: Double = Random.nextDouble() / 10d
+    val signal = if (Random.nextBoolean()) 1 else -1
+    d + (signal * increment)
+  }
+}
+````
+
+No big deal, so far. But we have to add this operation in the `SmartHomeServiceClient`:
+
+```scala
+trait SmartHomeServiceClient[F[_]] {
+  def isEmpty(): F[Boolean]
+  def getTemperature(): Stream[F, Temperature]
+  def comingBackMode(locations: Stream[F, Location]): F[Boolean]
+}
+```
+
+Whose interpretation could be:
+
+```scala
+def comingBackMode(locations: Stream[F, Location]): F[Boolean] =
+  for {
+    client <- clientF
+    response <- client.comingBackMode(locations)
+    _ <- L.info(s"Result: $response")
+  } yield response.result
+```
+
+Now, we have all the ingredients to proceed in the ClientApp:
+
+```scala
+def main(args: Array[String]): Unit = {
+  (for {
+    logger <- Stream.eval(Slf4jLogger.fromName[IO]("Client"))
+    client <- {
+      implicit val l = logger
+      SmartHomeServiceClient.createClient[IO]("localhost", 19683)
+    }
+    isEmptyResponse <- Stream.eval(client.isEmpty()).as(println)
+    //temperatureResponse <- client.getTemperature()
+    comingBackModeResponse <- Stream.eval(client.comingBackMode(LocationGenerators.get[IO])).as(println)
+  } yield (isEmptyResponse, comingBackModeResponse)).compile.toVector.unsafeRunSync()
+}
+```
+
+### Result
+
+When we run the client now with `sbt runClient` we get:
+
+```bash
+INFO  - Created new RPC client for (localhost,19683)
+INFO  - Result: IsEmptyResponse(true)
+* New Location 👍  --> Location(47.0,47.0)
+* New Location 👍  --> Location(47.06799068842323,46.98929181922271)
+* New Location 👍  --> Location(47.14182165355257,47.01686282210311)
+* New Location 👍  --> Location(47.227313869966196,47.044541473406426)
+* New Location 👍  --> Location(47.221235857794206,47.08981180627368)
+```
+
+And the server log the request as expected:
+
+```bash
+INFO  - Starting server at localhost:19683
+INFO  - SmartHomeService - Request: IsEmptyRequest()
+INFO  - SmartHomeService - comingBackMode Request
+List(🔥 - Increase thermostat power, 💦 -  Disable irrigation system)
+List(🚪 - Unlock doors, 👩 - Connect Alexa)
+List(👮 - Enable Security cameras, 💡 - Turn off Lights)
+List(😎 - Low the blinds, 📺 - Turn on TV)
+```
 
 <!-- DOCTOC SKIP -->
 # Copyright

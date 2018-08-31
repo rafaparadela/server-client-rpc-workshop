@@ -19,9 +19,12 @@ object ClientApp {
         SmartHomeServiceClient.createClient[IO]("localhost", 19683)
       }
       isEmptyResponse <- Stream.eval(client.isEmpty()).as(println)
-      temperatureResponse <- client.getTemperature()
-    } yield
-      (isEmptyResponse, temperatureResponse)).compile.toVector.unsafeRunSync()
+      //temperatureResponse <- client.getTemperature()
+      comingBackModeResponse <- Stream
+        .eval(client.comingBackMode(LocationGenerators.get[IO]))
+        .as(println)
+    } yield (isEmptyResponse, comingBackModeResponse)).compile.toVector
+      .unsafeRunSync()
 
   }
 
