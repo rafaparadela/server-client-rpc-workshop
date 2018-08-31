@@ -5,14 +5,19 @@ import cats.syntax.applicative._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import com.fortyseven.protocol.services._
+import freestyle.rpc.protocol.Empty
+import fs2.Stream
 import io.grpc.{CallOptions, ManagedChannel}
 import monix.execution.Scheduler
 import io.chrisdavenport.log4cats.Logger
+
 import scala.concurrent.duration._
 
 trait SmartHomeServiceClient[F[_]] {
 
   def isEmpty(): F[Boolean]
+
+  def getTemperature(): Stream[F, Temperature]
 
 }
 object SmartHomeServiceClient {
@@ -27,6 +32,13 @@ object SmartHomeServiceClient {
           response <- client.isEmpty(IsEmptyRequest())
           _ <- L.info(s"Result: $response")
         } yield response.result
+
+def getTemperature(): Stream[F, Temperature] =
+  for {
+    client <- Stream.eval(clientF)
+    response <- client.getTemperature(Empty)
+    _ <- Stream.eval(L.info(s"Result: $response"))
+  } yield response
 
     }
 

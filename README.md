@@ -16,6 +16,11 @@
   - [Server](#server-1)
   - [Client](#client-1)
   - [Result](#result)
+- [Server-streaming RPC service: `GetTemperature`](#server-streaming-rpc-service-gettemperature)
+  - [Protocol](#protocol-2)
+  - [Server](#server-2)
+  - [Client](#client-2)
+  - [Result](#result-1)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -380,6 +385,148 @@ And the server log the request as expected:
 
 ```bash
 INFO  - SmartHomeService - Request: IsEmptyRequest()
+```
+
+
+## Server-streaming RPC service: `GetTemperature`
+
+Following the established plan, the next step is building the service that returns a stream of temperature values, to let clients subscribe to collect real-time info.
+
+### Protocol
+
+As usual we should add this operation in the protocol
+
+```scala
+case class Temperature(value: Double, unit: String)
+
+...
+
+@service(Protobuf) trait SmartHomeService[F[_]] {
+
+  def isEmpty(request: IsEmptyRequest): F[IsEmptyResponse]
+
+  def getTemperature(empty: Empty.type): Stream[F, Temperature]
+
+}
+```
+
+### Server
+
+If we want to emit a stream of `Temperature` values,  we would be well advised to develop a producer of `Temperature` in the server side. For instance:
+
+```scala
+object TemperaturesGenerators {
+
+  val seed = Temperature(25d, "Celsius")
+
+  def get[F[_]: Sync]: Stream[F, Temperature] = {
+    Stream.iterateEval(seed) { t =>
+      println(s"* New Temperature 👍  --> $t")
+      nextTemperature(t)
+    }
+  }
+
+  def nextTemperature[F[_]](current: Temperature)(implicit F: Sync[F]): F[Temperature] = F.delay {
+    Thread.sleep(2000)
+    val increment: Double = Random.nextDouble() / 2d
+    val signal = if (Random.nextBoolean()) 1 else -1
+    val currentValue = current.value
+    val nextValue = currentValue + (signal * increment)
+    current.copy(value = (math rint nextValue * 100) / 100)
+  }
+}
+```
+
+And this can be returned as response of the new service, in the interpreter.
+
+```scala
+override def getTemperature(empty: Empty.type): Stream[F, Temperature] =
+  for {
+    _ <- Stream.eval(L.info(s"SmartHomeService - getTemperature Request"))
+    temperatures <- TemperaturesGenerators.get[F]
+  } yield temperatures
+```
+
+### Client
+
+We have nothing less than adapt the client to consume the new service when it starting up. To this, a couple of changes are needed:
+
+Firstly we should enrich the algebra
+
+```scala
+trait SmartHomeServiceClient[F[_]] {
+
+  def isEmpty(): F[Boolean]
+
+  def getTemperature(): Stream[F, Temperature]
+
+}
+```
+
+Whose interpretation could be:
+
+```scala
+def getTemperature(): Stream[F, Temperature] =
+  for {
+    client <- Stream.eval(clientF)
+    response <- client.getTemperature(Empty)
+    _ <- Stream.eval(L.info(s"Result: $response"))
+  } yield response
+```
+
+And finally, to call it:
+
+```scala
+def main(args: Array[String]): Unit = {
+  (for {
+    logger <- Stream.eval(Slf4jLogger.fromName[IO]("Client"))
+    client <- {
+      implicit val l = logger
+      SmartHomeServiceClient.createClient[IO]("localhost", 19683)
+    }
+    isEmptyResponse <- Stream.eval(client.isEmpty()).as(println)
+    temperatureResponse <- client.getTemperature()
+  } yield
+    (isEmptyResponse, temperatureResponse)).compile.toVector.unsafeRunSync()
+
+}
+```
+
+### Result
+
+When we run the client now with `sbt runClient` we get:
+
+```bash
+INFO  - Created new RPC client for (localhost,19683)
+INFO  - Result: IsEmptyResponse(true)
+INFO  - Result: Temperature(25.0,Celsius)
+INFO  - Result: Temperature(25.22,Celsius)
+INFO  - Result: Temperature(24.76,Celsius)
+INFO  - Result: Temperature(24.99,Celsius)
+INFO  - Result: Temperature(25.16,Celsius)
+INFO  - Result: Temperature(25.64,Celsius)
+INFO  - Result: Temperature(26.11,Celsius)
+INFO  - Result: Temperature(25.98,Celsius)
+INFO  - Result: Temperature(25.98,Celsius)
+INFO  - Result: Temperature(25.7,Celsius)
+```
+
+And the server log the request as expected:
+
+```bash
+INFO  - Starting server at localhost:19683
+INFO  - SmartHomeService - Request: IsEmptyRequest()
+INFO  - SmartHomeService - getTemperature Request
+* New Temperature 👍  --> Temperature(25.0,Celsius)
+* New Temperature 👍  --> Temperature(25.22,Celsius)
+* New Temperature 👍  --> Temperature(24.76,Celsius)
+* New Temperature 👍  --> Temperature(24.99,Celsius)
+* New Temperature 👍  --> Temperature(25.16,Celsius)
+* New Temperature 👍  --> Temperature(25.64,Celsius)
+* New Temperature 👍  --> Temperature(26.11,Celsius)
+* New Temperature 👍  --> Temperature(25.98,Celsius)
+* New Temperature 👍  --> Temperature(25.98,Celsius)
+* New Temperature 👍  --> Temperature(25.7,Celsius)
 ```
 
 
