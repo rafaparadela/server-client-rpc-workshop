@@ -16,10 +16,10 @@ object ClientApp {
       logger <- Stream.eval(Slf4jLogger.fromName[IO]("Client"))
       client <- {
         implicit val l = logger
-        PeopleServiceClient.createClient[IO]("localhost", 19683)
+        SmartHomeServiceClient.createClient[IO]("localhost", 19683)
       }
-      getPersonResponse <- Stream.eval(client.getPerson("foo")).as(println)
-    } yield (getPersonResponse)).compile.toVector.unsafeRunSync()
+      isEmptyResponse <- Stream.eval(client.isEmpty()).as(println)
+    } yield (isEmptyResponse)).compile.toVector.unsafeRunSync()
 
   }
 

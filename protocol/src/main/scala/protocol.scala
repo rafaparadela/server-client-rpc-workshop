@@ -4,17 +4,15 @@ import freestyle.rpc.protocol._
 
 object services {
 
-  final case class Person(name: String, age: Int)
+  @message
+  final case class IsEmptyRequest()
 
   @message
-  final case class GetPersonRequest(name: String)
+  final case class IsEmptyResponse(result: Boolean)
 
-  @message
-  final case class GetPersonResponse(person: Person)
+  @service(Protobuf) trait SmartHomeService[F[_]] {
 
-  @service(Protobuf) trait PeopleService[F[_]] {
-
-    def getPerson(request: GetPersonRequest): F[GetPersonResponse]
+    def isEmpty(request: IsEmptyRequest): F[IsEmptyResponse]
 
   }
 

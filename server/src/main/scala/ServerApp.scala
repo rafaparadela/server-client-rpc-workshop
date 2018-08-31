@@ -13,12 +13,12 @@ class ServerProgram[F[_]: Effect] extends ServerBoot[F] {
   override def serverStream(
       implicit L: Logger[F]): Stream[F, StreamApp.ExitCode] = {
 
-    implicit val PS: PeopleService[F] = new PeopleServiceHandler[F]
+    implicit val SHS: SmartHomeService[F] = new SmartHomeServiceHandler[F]
 
     val port = 19683
 
     val grpcConfigs: List[GrpcConfig] = List(
-      AddService(PeopleService.bindService[F]))
+      AddService(SmartHomeService.bindService[F]))
 
     Stream.eval(for {
       server <- GrpcServer.default[F](port, grpcConfigs)

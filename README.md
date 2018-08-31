@@ -11,6 +11,11 @@
     - [Protocol](#protocol)
     - [Server](#server)
     - [Client](#client)
+- [Unary RPC service: `IsEmpty`](#unary-rpc-service-isempty)
+  - [Protocol](#protocol-1)
+  - [Server](#server-1)
+  - [Client](#client-1)
+  - [Result](#result)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -297,6 +302,84 @@ object ClientApp {
   }
 
 }
+```
+
+## Unary RPC service: `IsEmpty`
+
+As we said above, we want also to build a unary RPC service to let clients know if there is somebody in the home or there is not. Basically is the same we used to have behind the `getPerson` operation. So, we only need to replace some pieces.
+
+### Protocol
+
+Of course we describe a new protocol for this operation, with new messages:
+
+```scala
+@message final case class IsEmptyRequest()
+
+@message final case class IsEmptyResponse(result: Boolean)
+
+@service(Protobuf) trait SmartHomeService[F[_]] {
+  def isEmpty(request: IsEmptyRequest): F[IsEmptyResponse]
+}
+```
+
+### Server
+
+Now, we have to implement an interpreter for the new service `SmartHomeService`:
+
+```scala
+class SmartHomeServiceHandler[F[_]: Sync](implicit L: Logger[F]) extends SmartHomeService[F] {
+
+  override def isEmpty(request: IsEmptyRequest): F[IsEmptyResponse] =
+    L.info(s"SmartHomeService - Request: $request").as(IsEmptyResponse(true))
+
+}
+```
+
+And bind it to the gRPC server:
+
+```scala
+val grpcConfigs: List[GrpcConfig] = List(AddService(SmartHomeService.bindService[F]))
+```
+
+### Client
+
+And the client, of course, needs an algebra to describe the same operation:
+
+```scala
+trait SmartHomeServiceClient[F[_]] {
+  def isEmpty(): F[Boolean]
+}
+```
+
+That will be called when the app is running
+
+```scala
+def main(args: Array[String]): Unit = {
+  (for {
+    logger <- Stream.eval(Slf4jLogger.fromName[IO]("Client"))
+    client <- {
+      implicit val l = logger
+      SmartHomeServiceClient.createClient[IO]("localhost", 19683)
+    }
+    isEmptyResponse <- Stream.eval(client.isEmpty()).as(println)
+  } yield (isEmptyResponse)).compile.toVector.unsafeRunSync()
+}
+```
+
+### Result
+
+When we run the client now with `sbt runClient` we get:
+
+```bash
+INFO  - Created new RPC client for (localhost,19683)
+INFO  - Result: IsEmptyResponse(true)
+INFO  - Removed 1 RPC clients from cache.
+```
+
+And the server log the request as expected:
+
+```bash
+INFO  - SmartHomeService - Request: IsEmptyRequest()
 ```
 
 
