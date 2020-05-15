@@ -10,12 +10,11 @@ object TemperaturesGenerators {
 
   val seed = Temperature(25d, "Celsius")
 
-  def get[F[_]: Sync]: Stream[F, Temperature] = {
+  def get[F[_]: Sync]: Stream[F, Temperature] =
     Stream.iterateEval(seed) { t =>
       println(s"* New Temperature 👍  --> $t")
       nextTemperature(t)
     }
-  }
 
   def nextTemperature[F[_]](current: Temperature)(
       implicit F: Sync[F]): F[Temperature] = F.delay {
